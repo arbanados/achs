@@ -1,0 +1,613 @@
+---
+title: "ACHS-Model"
+author: "Alejandro Bañados"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+# 0. Introduction
+
+## 0.1 Context
+
+This notebook includes the code required to estimate the association between maximum daily temperature and work-related accidents across Chilean communes, as detailed in the manuscript *Association between extreme temperature and work-related accidents in Chile: a case time series by communes design*.
+
+We use two main datasets:
+- **ACHS_accidents.parquet**: work-related accident records provided by ACHS.
+- **tmax.parquet**: daily maximum temperature estimates from CR2met, using populated-area centroids.
+
+Many methods are based on scripts by Antonio Gasparrini, available at [github.com/gasparrini/CTS-smallarea](https://github.com/gasparrini/CTS-smallarea). Computations require considerable RAM.
+
+## 0.2 Setup
+Here we load the required R packages, define holiday dates, and create a mapping for economic sectors to support later subgroup analyses.
+
+```{r setup, include=FALSE}
+# Load libraries
+library(data.table)
+library(dlnm) ; library(gnm) ; library(splines)
+library(sf) ; library(terra)
+library(exactextractr)
+library(dplyr) ; library(tidyr)
+library(ggplot2) ; library(patchwork) ; library(scales) ; library(gridExtra)
+library(arrow) ; library(readxl) ; library(readr) ; library(writexl)
+library(psych)
+library(metafor)
+library(stringi)
+
+# Define holidays and macrosector mapping
+feriados=c('2015-01-01', '2015-01-01', '2015-04-03', '2015-04-04', '2015-05-01', '2015-05-21', '2015-06-29', '2015-07-16', '2015-08-15', '2015-09-18', '2015-09-19', '2015-10-12', '2015-10-31', '2015-11-01', '2015-12-08', '2015-12-25', '2016-01-01', '2016-01-01', '2016-03-25', '2016-03-26', '2016-05-01', '2016-05-21', '2016-06-12', '2016-06-27', '2016-07-16', '2016-08-15', '2016-09-18', '2016-09-19', '2016-10-10', '2016-10-23', '2016-10-31', '2016-11-01', '2016-12-08', '2016-12-25', '2017-01-01', '2017-01-01', '2017-01-02', '2017-04-14', '2017-04-15', '2017-04-19', '2017-05-01', '2017-05-21', '2017-06-26', '2017-07-02', '2017-07-16', '2017-08-15', '2017-09-18', '2017-09-19', '2017-10-09', '2017-10-27', '2017-11-01', '2017-11-19', '2017-12-08', '2017-12-17', '2017-12-25', '2018-01-01', '2018-01-01', '2018-01-16', '2018-03-30', '2018-03-31', '2018-05-01', '2018-05-21', '2018-07-02', '2018-07-16', '2018-08-15', '2018-09-17', '2018-09-18', '2018-09-19', '2018-10-15', '2018-11-01', '2018-11-02', '2018-12-08', '2018-12-25', '2019-01-01', '2019-01-01', '2019-04-19', '2019-04-20', '2019-05-01', '2019-05-21', '2019-06-29', '2019-07-16', '2019-08-15', '2019-09-18', '2019-09-19', '2019-09-20', '2019-10-12', '2019-10-31', '2019-11-01', '2019-12-08', '2019-12-25', '2020-01-01', '2020-01-01', '2020-04-10', '2020-04-11', '2020-04-26', '2020-05-01', '2020-05-21', '2020-06-07', '2020-06-29', '2020-07-16', '2020-08-15', '2020-09-18', '2020-09-19', '2020-10-12', '2020-10-25', '2020-10-31', '2020-11-01', '2020-12-08', '2020-12-25', '2021-01-01', '2021-01-01', '2021-04-02', '2021-04-03', '2021-04-11', '2021-05-01', '2021-05-09', '2021-05-21', '2021-06-21', '2021-06-28', '2021-07-04', '2021-07-16', '2021-08-15', '2021-09-17', '2021-09-18', '2021-09-19', '2021-10-11', '2021-10-31', '2021-11-01', '2021-11-21', '2021-12-08', '2021-12-19', '2021-12-25', '2022-01-01', '2022-04-15', '2022-04-16', '2022-05-01', '2022-05-21', '2022-06-21', '2022-06-27', '2022-07-16', '2022-08-15', '2022-09-16', '2022-09-18', '2022-09-19', '2022-10-10', '2022-10-31', '2022-11-01', '2022-12-08', '2022-12-25', '2023-01-01', '2023-01-02', '2023-04-07', '2023-04-08', '2023-05-01', '2023-05-21', '2023-06-21', '2023-06-26', '2023-07-16', '2023-08-15', '2023-09-18', '2023-09-19', '2023-10-09', '2023-10-27', '2023-11-01', '2023-12-08', '2023-12-25') # List of dates
+macrosector_map <- c(# Mapping of economic sectors
+  # Grupo 1: Silvoagropecuario
+  "Agrícola" = "Silvoagropecuario",
+  "Forestal" = "Silvoagropecuario",
+  "Pesca" = "Silvoagropecuario",
+  "Acuícola" = "Silvoagropecuario",
+
+  # Grupo 2: Industria, Construcción y Minería (sin energía)
+  "Industrial" = "Industria, Construcción y Minería",
+  "Construcción" = "Industria, Construcción y Minería",
+  "Minería" = "Industria, Construcción y Minería",
+
+  # Grupo 3: Comercio
+  "Comercio" = "Comercio",
+
+  # Grupo 4: Servicios Públicos
+  "Salud" = "Servicios Públicos",
+  "Educación" = "Servicios Públicos",
+  "Gubernamental" = "Servicios Públicos",
+
+  # Grupo 5: Resto Servicios
+  "Financiero" = "Resto Servicios",
+  "Transporte" = "Resto Servicios",
+  "Energía" = "Resto Servicios",
+
+  # Grupo 6: No asignado
+  "No asignado" = "No asignado"
+)
+```
+
+
+# 1. Data
+
+## 1.1 Preparation of Time Series
+We import the datasets, clean them, and create a complete time series for each commune. This structure is required by the DLNM model, ensuring that every date is represented even if it has 0 count.
+
+```{r}
+# Load and preprocess accidents and temperature data
+rawdata <- as.data.table(read_parquet("../data/ACHS_accidents.parquet"))
+temp_data <- as.data.table(read_parquet("../data/tmax.parquet"))
+temp_data[, date := as.Date(time)]; temp_data[, time := NULL]
+
+# Join classification data and derive macroregion
+clasif <- read_csv("../data/classification_sectors.csv", show_col_types = FALSE)
+rawdata <- rawdata %>% left_join(clasif, by = c("descripcion_rubro_achs" = "rubro"))
+rawdata$macrosector <- macrosector_map[rawdata$macrorubroACHS]
+rawdata[, Region := as.integer(substr(direccion_accidente, nchar(direccion_accidente) - 1, nchar(direccion_accidente)))]
+rawdata[, MacroRegion := fifelse(Region %in% c(1,15,2,3,4), "North",
+                          fifelse(Region %in% c(5,13,6,7,16), "Center",
+                          fifelse(Region %in% c(8,9,14,10), "South",
+                          fifelse(Region %in% c(11,12), "Austral", NA_character_))))]
+```
+
+We define a function that prepares the data by merging temperature and accident data, completing all days, and computing covariates.
+
+```{r}
+# Function to prepare commune-level DLNM-ready dataset
+f_prepare_dlnm_data <- function(
+    accidents_data,
+    temperature_data,
+    filter_condition = "TRUE",
+    date_col_accidents = "fecha_accidente",
+    date_col_temperature = "date",
+    commune_col = "Comuna",
+    temp_col = "tmax",
+    start_date = "2015-01-01",
+    end_date = "2020-03-01",
+    feriados_vec = NULL
+) {
+  # basic validation
+  required_cols_acc <- c(commune_col, date_col_accidents)
+  required_cols_temp <- c(commune_col, date_col_temperature, temp_col)
+  
+  if (!all(required_cols_acc %in% names(accidents_data))) {
+    stop("accidents_data must contain columns: ", paste(required_cols_acc, collapse = ", "))
+  }
+  if (!all(required_cols_temp %in% names(temperature_data))) {
+    stop("temperature_data must contain columns: ", paste(required_cols_temp, collapse = ", "))
+  }
+  
+  # prepare accidents
+  accidents <- as.data.table(accidents_data) %>%
+    filter(eval(parse(text = filter_condition))) %>%
+    group_by_at(c(commune_col, date_col_accidents)) %>%
+    summarise(count = n(), .groups = "drop") %>%
+    as.data.table()
+  
+  setnames(accidents, date_col_accidents, "date")
+  accidents[, date := as.Date(date)]
+  setnames(accidents, commune_col, "Comuna")
+  accidents <- accidents[!is.na(Comuna)]
+  accidents <- accidents[date >= as.Date(start_date) & date < as.Date(end_date)]
+  
+  # expand days without accidents
+  seq_comunas <- sort(unique(accidents$Comuna))
+  seq_dates <- seq(from = as.Date(start_date), to = as.Date(end_date), by = "day")
+  
+  datafull <- accidents %>%
+    complete(Comuna = seq_comunas, date = seq_dates, fill = list(count = 0)) %>%
+    as.data.table()
+  
+  # time variables
+  datafull[, `:=`(
+    year = year(date),
+    month = month(date),
+    day = mday(date),
+    doy = yday(date),
+    dow = wday(date)
+  )]
+  
+  # Feriados
+  if (!is.null(feriados_vec)) {
+    datafull[, holiday := if_else(as.character(date) %in% feriados_vec, 1, 0)]
+  } else {
+    datafull[, holiday := 0]
+  }
+  
+  # temperature
+  temperature <- as.data.table(temperature_data)
+  setnames(temperature, date_col_temperature, "date")
+  setnames(temperature, commune_col, "Comuna")
+  setnames(temperature, temp_col, "tmax")
+  
+  # merge
+  final_data <- merge(datafull, temperature[, .(Comuna, date, tmax)], by = c("Comuna", "date"))
+  final_data <- final_data[complete.cases(final_data)]
+  setkey(final_data, Comuna, date)
+  
+  return(final_data)
+}
+
+```
+
+Call the function with default filters.
+
+```{r}
+datafull <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo'" ,# Filtered for work-related accidents
+  date_col_accidents = "fecha_accidente",
+  date_col_temperature = "date",
+  commune_col = "Comuna",
+  temp_col = "tmax",
+  feriados_vec = feriados
+)
+```
+
+
+## 1.2 Description Map
+We summarize spatial patterns of temperature and accident counts using a bubble map by commune. More description in Supplementary Material.
+
+```{r}
+# Load shapefiles and centroids
+commune_polygons <- st_read("../data/comunashp/comunashp.shp")
+commune_points <- st_read("../data/comunas_centroid.gpkg")
+
+comuna_data <- datafull %>%
+  group_by(Comuna) %>%
+  summarize(total_accidents = sum(count),
+            median_temperature = median(tmax))
+
+commune_points$Comuna=stri_trans_general(tolower(commune_points$Comuna), "Latin-ASCII")
+
+bubble_data <- commune_points %>%
+  left_join(comuna_data, by = "Comuna")
+
+commune_polygons <- st_transform(commune_polygons, st_crs(bubble_data))
+```
+
+Join and plot.
+```{r}
+# Shared scales
+size_scale <- scale_size_continuous(name = "Total Work Accidents", range = c(1, 7))
+color_scale <- scale_color_viridis_c(name = "Avg Max Temp (°C)", option = "plasma")
+
+# Mapa North
+plot_north <- ggplot() +
+  geom_sf(data = commune_polygons) +
+  geom_sf(data = bubble_data, aes(size = total_accidents, color = median_temperature), alpha = 0.8) +
+  size_scale + color_scale +
+  coord_sf(
+    xlim = c(-8.5e6, -6.8e6),
+    ylim = c(-4.5e6, -2e6),
+    crs = 3857
+  ) +
+  labs(title = "North Chile") +
+  theme_minimal() +
+  theme(panel.grid = element_blank(),
+        legend.position = "none")  # Suppress legend
+
+# Mapa South
+plot_south <- ggplot() +
+  geom_sf(data = commune_polygons) +
+  geom_sf(data = bubble_data, aes(size = total_accidents, color = median_temperature), alpha = 0.8) +
+  size_scale + color_scale +
+  coord_sf(
+    xlim = c(-8.5e6, -6.8e6),
+    ylim = c(-7.5e6, -4.5e6),
+    crs = 3857
+  ) +
+  labs(title = "South Chile") +
+  theme_minimal() +
+  theme(panel.grid = element_blank(),
+        legend.position = "right")  # Keep legend here
+
+combined_plot <- plot_north + plot_south + plot_layout(ncol = 2)
+
+ggsave("../results/Figure1.pdf", combined_plot, width = 14, height = 10)
+
+```
+
+
+# 2. Model
+
+## 2.1 Main Model
+This section defines the function to estimate the core DLNM model, including the lag structure, spline settings, and key temperature percentiles used to compute relative risks. The model parameters include lag days, spline degrees of freedom, and a reference temperature (typically 20°C). Results include the full exposure-response curve and a heat-specific comparison (99th vs 75th percentile), aligned with reporting in the literature.
+
+
+```{r}
+f_estimate_results <- function(input_data,  
+                               lag = 5, 
+                               cen = 20, 
+                               year_df = 8, 
+                               temp_var = "tmax", 
+                               output_name = "Try1") {
+
+  gc()  # Garbage Collection
+  
+  # Prepare Data
+  input_data$y <- input_data$count
+  name <- paste0(output_name, " lag", lag, " cen", cen, " df", year_df)
+  
+  # Spline for DOY
+  spldoy <- onebasis(input_data$doy, "ns", df = year_df)
+  
+  # Create crossbasis for temperature
+  temp_vals <- input_data[[temp_var]]
+  argvar <- list(fun = "ns", knots = quantile(temp_vals, c(0.10, 0.70, 0.90), na.rm = TRUE))
+  arglag <- list(fun = "ns", knots = log(2))
+  group <- factor(paste(input_data$comuna_corregida, input_data$year, sep = "-"))
+  cbtemp <- crossbasis(temp_vals, lag = lag, argvar = argvar, arglag = arglag, group = group)
+  
+  # Define strata
+  input_data[, stratum := factor(paste(Comuna, year, sep = ":"))]
+  
+  # Filter dataset
+  input_data[, keep := sum(y) > 30, by = stratum]
+  gc()
+  
+  # Run the model
+  modfull <- gnm(y ~ cbtemp + spldoy:factor(year) + factor(dow) + holiday, 
+                 eliminate = stratum, data = input_data, 
+                 family = quasipoisson, subset = keep)
+  
+  # Output 1: Generate predictions centered at `cen`
+  pred.ptemp <- crosspred(cbtemp, modfull, cen = cen, by = 0.5)
+  
+  # Output 2: Weighted RR summary
+  wpercentiles <- input_data %>%
+    filter(year < 2020) %>%
+    group_by(Comuna) %>%
+    mutate(total_cases = sum(count, na.rm = TRUE)) %>%
+    ungroup() %>%
+    group_by(date) %>%
+    summarise(w_temp = weighted.mean(.data[[temp_var]], w = total_cases, na.rm = TRUE)) %>%
+    pull(w_temp) %>%
+    quantile(probs = c(0.01, 0.25, 0.5, 0.75, 0.99), na.rm = TRUE)
+  
+  t_75 <- round(wpercentiles[4], 1)
+  t_99 <- round(wpercentiles[5], 1)
+  t_25 <- round(wpercentiles[2], 1)
+  t_01 <- round(wpercentiles[1], 1)
+  
+  # RR heat (99 vs 75)
+  pred.ptemp2 <- crosspred(cbtemp, modfull, cen = t_75, by = 0.1)
+  rr_heat_fit <- setNames(as.numeric(pred.ptemp2$allRRfit), round(as.numeric(names(pred.ptemp2$allRRfit)), 1))
+  rr_heat_low <- setNames(as.numeric(pred.ptemp2$allRRlow), round(as.numeric(names(pred.ptemp2$allRRlow)), 1))
+  rr_heat_high <- setNames(as.numeric(pred.ptemp2$allRRhigh), round(as.numeric(names(pred.ptemp2$allRRhigh)), 1))
+  
+  # RR cold (1 vs 25)
+  pred.ptemp2 <- crosspred(cbtemp, modfull, cen = t_25, by = 0.1)
+  rr_cold_fit <- setNames(as.numeric(pred.ptemp2$allRRfit), round(as.numeric(names(pred.ptemp2$allRRfit)), 1))
+  rr_cold_low <- setNames(as.numeric(pred.ptemp2$allRRlow), round(as.numeric(names(pred.ptemp2$allRRlow)), 1))
+  rr_cold_high <- setNames(as.numeric(pred.ptemp2$allRRhigh), round(as.numeric(names(pred.ptemp2$allRRhigh)), 1))
+  
+  # Result vector
+  result_vector <- c(
+    name,
+    total_injuries = sum(input_data$count, na.rm = TRUE),
+    t_75, t_99,
+    RR_99_vs_75 = rr_heat_fit[as.character(t_99)],
+    CI_high_99_vs_75 = rr_heat_high[as.character(t_99)],
+    CI_low_99_vs_75 = rr_heat_low[as.character(t_99)],
+    t_01, t_25,
+    RR_01_vs_25 = rr_cold_fit[as.character(t_01)],
+    CI_high_01_vs_25 = rr_cold_high[as.character(t_01)],
+    CI_low_01_vs_25 = rr_cold_low[as.character(t_01)]
+  )
+  
+  names(result_vector) <- c(
+    "Model", "total_injuries", "temp_75", "temp_99",
+    "RR_99_vs_75", "CI_high_99_vs_75", "CI_low_99_vs_75",
+    "temp_01", "temp_25",
+    "RR_01_vs_25", "CI_high_01_vs_25", "CI_low_01_vs_25"
+  )
+  
+  return(list(pred.ptemp, result_vector))
+}
+
+```
+## 2.2 Subgroups
+To explore differences in vulnerability, we define a plotting function to compare exposure-response curves across demographic or sectoral subgroups.
+
+```{r}
+f_plot2curves = function(cp1, cp2, cp3 = NULL, 
+                         ylim = c(0.5,1.8), xlim = c(5,40),
+                         legend = c("Leyenda 1", "Leyenda 2", "Legend 3"),
+                         figurenumber = 0) {
+  
+  col <- c("tomato4", "royalblue1", "seagreen3")
+  lty <- c(1, 2, 3)
+  pch <- c(16, 17, 18)
+  parold <- par(no.readonly = TRUE)
+  par(mar = c(4, 4, 1, 0.5), las = 1, mgp = c(2.5, 1, 0))
+  
+  plot(cp1, "overall", ylim = ylim, xlim = xlim, ylab = "Relative Risk (RR)", 
+       col = col[1], lwd = 1.5, xlab = expression(paste("Max Daily Temperature (°C)")), 
+       ci.arg = list(col = scales::alpha(col[1], 0.2)), lty = lty[1])
+  
+  lines(cp2, "overall", ci = "area", col = col[2], lwd = 1.5, 
+        ci.arg = list(col = scales::alpha(col[2], 0.2)), lty = lty[2])
+  
+  plotted <- 2
+  if (!is.null(cp3)) {
+    lines(cp3, "overall", ci = "area", col = col[3], lwd = 1.5, 
+          ci.arg = list(col = scales::alpha(col[3], 0.2)), lty = lty[3])
+    plotted <- 3
+  }
+  
+  legend("top", legend = legend[1:plotted],
+         lty = lty[1:plotted], lwd = 1.5,
+         col = col[1:plotted], bty = "n",
+         inset = 0.05, y.intersp = 2, cex = 0.8)
+  
+  dev.print(pdf, file = paste0("../results/Figure", figurenumber, ".pdf"), width = 6, height = 5)
+  
+  par(parold)
+}
+```
+
+# 3. Results
+
+## 3.1 Main Results
+We estimate the overall relationship between maximum temperature and work-related accidents across the full dataset. This serves as our baseline reference curve.
+```{r}
+# ESTIMATE
+mod1=f_estimate_results(input_data = datafull, lag = 5, cen = 20, year_df = 8, output_name = "Main") #try parameters here, but the subgroups are using the default ones from the function
+
+# PLOT MAIN
+col <- "tomato4"
+pch_symbol <- 16 
+parold <- par(no.readonly = TRUE)
+par(mar = c(4, 4, 1, 0.5), las = 1, mgp = c(2.5, 1, 0))
+# Plot the result
+plot(mod1[[1]], "overall", ylim = c(0.5, 1.5), xlim=c(5,40), ylab = "Relative Risk",
+     col = col, lwd = 1.5, xlab = "Daily Maximum Temperature (°C)", 
+     ci.arg = list(col = scales::alpha(col, 0.2)), pch = pch_symbol)
+par(parold)
+# Save the plot as PDF
+dev.print(pdf, file = paste0("../results/Figure2.pdf"), width = 7.5, height = 6)
+plot(mod1[[1]])
+
+# RESULTS
+results_df <- data.table()
+results_df <- rbind(results_df,  as.data.table(as.list(mod1[[2]])), fill = TRUE)
+```
+
+## 3.2 Sex
+We compare heat-related accident risk between male and female workers, revealing sex-based differences in vulnerability.
+```{r}
+# Male
+data_male <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'masculino'",
+  feriados_vec = feriados
+)
+cp_masc <- f_estimate_results(input_data = data_male, output_name = "Male")
+
+# Female
+data_fem <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino'",
+  feriados_vec = feriados
+)
+cp_fem <- f_estimate_results(input_data = data_fem, output_name = "Female")
+
+# Plot
+f_plot2curves(cp_masc[[1]], cp_fem[[1]], xlim = c(5, 40), legend = c("Male", "Female"), figurenumber = "3a")
+
+# Save
+results_df <- rbind(results_df,  
+                    as.data.table(as.list(cp_masc[[2]])),
+                    as.data.table(as.list(cp_fem[[2]])), fill = TRUE)
+
+```
+
+
+
+## 3.3 Age groups: 18–39, 40–59 y 60+
+We analyze exposure-response curves by age groups to assess whether younger or older workers are more sensitive to extreme temperatures.
+```{r}
+data_18_39 <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & edad >= 18 & edad <= 39",
+  feriados_vec = feriados
+)
+cp_18_39 <- f_estimate_results(input_data = data_18_39, output_name = "18–39")
+
+data_40_59 <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & edad >= 40 & edad <= 59",
+  feriados_vec = feriados
+)
+cp_40_59 <- f_estimate_results(input_data = data_40_59, output_name = "40–59")
+
+data_60plus <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & edad >= 60",
+  feriados_vec = feriados
+)
+cp_60mas <- f_estimate_results(input_data = data_60plus, output_name = "60+")
+
+# Plot
+f_plot2curves(cp_18_39[[1]], cp_40_59[[1]], cp_60mas[[1]], 
+              xlim = c(5, 40), 
+              legend = c("18–39", "40–59", "60+"), 
+              figurenumber = "3b")
+
+# Save
+results_df <- rbind(
+  results_df,
+  as.data.table(as.list(cp_18_39[[2]])),
+  as.data.table(as.list(cp_40_59[[2]])),
+  as.data.table(as.list(cp_60mas[[2]])),
+  fill = TRUE
+)
+
+```
+
+
+## 3.4 MacroRegion
+We evaluate regional differences in heat-related risk across northern, central, and southern Chile, identifying geographical patterns of vulnerability.
+```{r}
+
+data_north <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & MacroRegion == 'North'",
+  feriados_vec = feriados
+)
+cp_North <- f_estimate_results(input_data = data_north, output_name = "North")
+
+data_center <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & MacroRegion == 'Center'",
+  feriados_vec = feriados
+)
+cp_Center <- f_estimate_results(input_data = data_center, output_name = "Center")
+
+data_south <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & MacroRegion == 'South'",
+  feriados_vec = feriados
+)
+cp_South <- f_estimate_results(input_data = data_south, output_name = "South")
+
+# Plot
+f_plot2curves(cp_North[[1]], cp_Center[[1]], cp_South[[1]],
+              xlim = c(5, 40), 
+              legend = c("North", "Center", "South"), 
+              figurenumber = "3c")
+
+# Save
+results_df <- rbind(
+  results_df,  
+  as.data.table(as.list(cp_North[[2]])),
+  as.data.table(as.list(cp_Center[[2]])),
+  as.data.table(as.list(cp_South[[2]])), fill = TRUE
+)
+
+```
+
+## 3.5 Economic sector
+We compare risks across economic sectors, distinguishing between outdoor-exposed sectors like agroforestry and indoor or less exposed ones like commerce.
+```{r}
+data_agro <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & macrosector == 'Silvoagropecuario'",
+  feriados_vec = feriados
+)
+cp_Silvoagropecuario <- f_estimate_results(input_data = data_agro, output_name = "Agroforestry&Fishing")
+
+data_industry <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & macrosector == 'Industria, Construcción y Minería'",
+  feriados_vec = feriados
+)
+cp_Industria <- f_estimate_results(input_data = data_industry, output_name = "Industry/Construc/Mining")
+
+data_commerce <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & macrosector == 'Comercio'",
+  feriados_vec = feriados
+)
+cp_Comercio <- f_estimate_results(input_data = data_commerce, output_name = "Commerce")
+
+# Plot
+f_plot2curves(cp_Silvoagropecuario[[1]], cp_Industria[[1]], cp_Comercio[[1]],
+              xlim = c(5, 40),
+              legend = c("Agroforestry and Fishing", "Industry/Construction/Mining", "Commerce"),
+              figurenumber = "3d")
+
+data_public <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & macrosector == 'Servicios Públicos'",
+  feriados_vec = feriados
+)
+cp_Public <- f_estimate_results(input_data = data_public, output_name = "Public Service")
+
+# Save
+results_df <- rbind(
+  results_df,
+  as.data.table(as.list(cp_Silvoagropecuario[[2]])),
+  as.data.table(as.list(cp_Industria[[2]])),
+  as.data.table(as.list(cp_Comercio[[2]])),
+  as.data.table(as.list(cp_Public[[2]])),
+  fill = TRUE
+)
+
+
+```
+
+## 3.6 Aggregated Forest Plot
+We summarize subgroup-specific heat-related risks using the metric "P99 vs P752" with a forest plot to highlight heterogeneity in relative risk estimates.
+```{r}
+
+pdf("../results//Figure4.pdf", width = 8, height = 6)
+
+metafor::forest(x=as.numeric(results_df$RR_99_vs_75),
+       ci.lb=as.numeric(results_df$CI_low_99_vs_75),
+       ci.ub=as.numeric(results_df$CI_high_99_vs_75),
+       slab=sub(" .*", "", results_df$Model),
+       ilab = formatC(as.numeric(results_df$total_injuries), format = "d", big.mark = ","),
+       header="Subgroup              Total Accidents",
+       xlab = "Relative Risk of heat (P99 vs P75)",
+       shade=TRUE,
+       refline = 1)
+
+dev.off()
+```
+
+
+

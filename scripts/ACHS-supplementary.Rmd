@@ -1,0 +1,928 @@
+---
+title: "Supplementary material"
+author: "Pablo Cea"
+output: pdf_document
+---
+
+# 0. Structure of the Rmd
+
+1. Data preparation
+2. General table: Accidents by economic sector and sex. 
+3. Tables by sector: age distribution and sex 
+4. Regional tables: distribution by macro-zone
+5. Cross-tabulations: sector by region (female participation)
+6. Exploratory conclusions
+
+
+## 0.1 Setup
+```{r setup}
+library(data.table) # HANDLE LARGE DATASETS
+library(dlnm) ; library(gnm) ; library(splines) # MODELLING TOOLS
+library(sf) ; library(terra) # HANDLE SPATIAL DATA
+library(exactextractr) # FAST EXTRACTION OF AREA-WEIGHTED RASTER CELLS
+library(dplyr) ; library(tidyr) # DATA MANAGEMENT TOOLS
+library(ggplot2) ; library(patchwork); library(scales) ; library(gridExtra)# PLOTS)
+library(arrow) ; library(readxl) ; library(readr) # IMPORTEXPORT IN EFFICIENT DATASET FORMATS
+library("psych"); #library(Hmisc) #GOOD FOR DESCRIPTION
+library(metafor)
+library(stringi)
+library(writexl)
+library(dplyr)
+library(stringr)
+source("ACHS-functions.R")
+library(knitr)
+library(kableExtra)
+
+
+
+
+feriados=c('2015-01-01', '2015-01-01', '2015-04-03', '2015-04-04', '2015-05-01', '2015-05-21', '2015-06-29', '2015-07-16', '2015-08-15', '2015-09-18', '2015-09-19', '2015-10-12', '2015-10-31', '2015-11-01', '2015-12-08', '2015-12-25', '2016-01-01', '2016-01-01', '2016-03-25', '2016-03-26', '2016-05-01', '2016-05-21', '2016-06-12', '2016-06-27', '2016-07-16', '2016-08-15', '2016-09-18', '2016-09-19', '2016-10-10', '2016-10-23', '2016-10-31', '2016-11-01', '2016-12-08', '2016-12-25', '2017-01-01', '2017-01-01', '2017-01-02', '2017-04-14', '2017-04-15', '2017-04-19', '2017-05-01', '2017-05-21', '2017-06-26', '2017-07-02', '2017-07-16', '2017-08-15', '2017-09-18', '2017-09-19', '2017-10-09', '2017-10-27', '2017-11-01', '2017-11-19', '2017-12-08', '2017-12-17', '2017-12-25', '2018-01-01', '2018-01-01', '2018-01-16', '2018-03-30', '2018-03-31', '2018-05-01', '2018-05-21', '2018-07-02', '2018-07-16', '2018-08-15', '2018-09-17', '2018-09-18', '2018-09-19', '2018-10-15', '2018-11-01', '2018-11-02', '2018-12-08', '2018-12-25', '2019-01-01', '2019-01-01', '2019-04-19', '2019-04-20', '2019-05-01', '2019-05-21', '2019-06-29', '2019-07-16', '2019-08-15', '2019-09-18', '2019-09-19', '2019-09-20', '2019-10-12', '2019-10-31', '2019-11-01', '2019-12-08', '2019-12-25', '2020-01-01', '2020-01-01', '2020-04-10', '2020-04-11', '2020-04-26', '2020-05-01', '2020-05-21', '2020-06-07', '2020-06-29', '2020-07-16', '2020-08-15', '2020-09-18', '2020-09-19', '2020-10-12', '2020-10-25', '2020-10-31', '2020-11-01', '2020-12-08', '2020-12-25', '2021-01-01', '2021-01-01', '2021-04-02', '2021-04-03', '2021-04-11', '2021-05-01', '2021-05-09', '2021-05-21', '2021-06-21', '2021-06-28', '2021-07-04', '2021-07-16', '2021-08-15', '2021-09-17', '2021-09-18', '2021-09-19', '2021-10-11', '2021-10-31', '2021-11-01', '2021-11-21', '2021-12-08', '2021-12-19', '2021-12-25', '2022-01-01', '2022-04-15', '2022-04-16', '2022-05-01', '2022-05-21', '2022-06-21', '2022-06-27', '2022-07-16', '2022-08-15', '2022-09-16', '2022-09-18', '2022-09-19', '2022-10-10', '2022-10-31', '2022-11-01', '2022-12-08', '2022-12-25', '2023-01-01', '2023-01-02', '2023-04-07', '2023-04-08', '2023-05-01', '2023-05-21', '2023-06-21', '2023-06-26', '2023-07-16', '2023-08-15', '2023-09-18', '2023-09-19', '2023-10-09', '2023-10-27', '2023-11-01', '2023-12-08', '2023-12-25')
+macrosector_map <- c(
+  # Grupo 1: Silvoagropecuario
+  "Agrícola" = "Silvoagropecuario",
+  "Forestal" = "Silvoagropecuario",
+  "Pesca" = "Silvoagropecuario",
+  "Acuícola" = "Silvoagropecuario",
+
+  # Grupo 2: Industria, Construcción y Minería (sin energía)
+  "Industrial" = "Industria, Construcción y Minería",
+  "Construcción" = "Industria, Construcción y Minería",
+  "Minería" = "Industria, Construcción y Minería",
+
+  # Grupo 3: Comercio
+  "Comercio" = "Comercio",
+
+  # Grupo 4: Servicios Públicos
+  "Salud" = "Servicios Públicos",
+  "Educación" = "Servicios Públicos",
+  "Gubernamental" = "Servicios Públicos",
+
+  # Grupo 5: Resto Servicios
+  "Financiero" = "Resto Servicios",
+  "Transporte" = "Resto Servicios",
+  "Energía" = "Resto Servicios",
+
+  # Grupo 6: No asignado
+  "No asignado" = "No asignado"
+)
+```
+
+
+
+## 0.2 Preparation of Time Series
+Accidents data is loaded, some filters are made and it is restructured so every commune has a data point for each day, including days with and without accidents. This is not very efficient in space use, but is the way the data is needed for dlnm package.
+```{r }
+# injuries data
+rawdata <- as.data.table(read_parquet("../data/ACHS_accidents.parquet")) # Import data
+clasif <- read_csv("../data/Clasificacion_propia_rubros.csv",show_col_types = FALSE)
+rawdata <- rawdata %>%
+  left_join(clasif, by = c("descripcion_rubro_achs" = "rubro"))
+table(rawdata$macrorubroACHS)
+rawdata$macrosector<- macrosector_map[rawdata$macrorubroACHS]
+
+
+# temp data
+temp_data <- as.data.table(read_parquet("../data/tmax.parquet")) # Import data 
+temp_data[, date := as.Date(time)] # Convert 'fecha' to Date format and store in 'date'
+temp_data[, time := NULL]
+
+rawdata[, Region := as.integer(substr(direccion_accidente, nchar(direccion_accidente) - 1, nchar(direccion_accidente)))]# Add Region (last two characters of direccion_accidente)
+
+rawdata[, MacroRegion := fifelse(Region %in% c(1,15,2,3,4), "North",
+                          fifelse(Region %in% c(5,13,6,7,16), "Center",
+                          fifelse(Region %in% c(8,9,14,10), "South",
+                          fifelse(Region %in% c(11,12), "Austral", NA_character_))))]
+
+```
+
+
+
+## 0.3 Short Description of data
+
+```{r}
+data_description = datafull
+  
+# Continuous variables
+summary(data_description[,.(count, tmax,date, year, month, day, doy, dow, holiday)])
+
+# 1. Histogram of daily accidents
+ggplot(data_description, aes(x = count)) +
+  geom_histogram(binwidth = 1, fill = "red", color = "grey50") +
+  labs(title = "Histogram of Daily Accidents", x = "Number of Accidents", y = "Frequency")
+ggsave("../results/descriptives/histogram.png",  width = 7.5, height = 6, dpi = 200)
+
+
+# 2. Time series plot of daily accidents
+ggplot(data_description, aes(x = date, y = count)) +
+  geom_line() +
+  labs(title = "Time Series of Daily Accidents", x = "Date", y = "Number of Accidents")
+
+# 3. Scatter plot of daily accidents vs. temperature
+ggplot(data_description, aes(x = tmax, y = count)) +
+  geom_point() +
+  labs(title = "Scatter Plot of Accidents vs. Temperature", x = "Temperature (°C)", y = "Number of Accidents")
+
+# 4. Histogram of daily temperature
+ggplot(data_description, aes(x = tmax)) +
+  geom_histogram(binwidth = 1, fill = "red", color = "grey50") +
+  labs(title = "Histogram of Daily Temperature", x = "Temperature (°C)", y = "Frequency")
+
+# 5. Bar plot of total accidents per day of the week (DOW)
+ggplot(data_description, aes(x = factor(dow, levels = 1:7, labels = c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")), y = count)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = "Total Accidents per Day of the Week", x = "Day of the Week", y = "Total Accidents")
+
+# 6. Bar plot of total accidents per month
+ggplot(data_description, aes(x = factor(month, levels = 1:12, labels = month.name), y = count)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = "Total Accidents per Month", x = "Month", y = "Total Accidents")
+```
+
+## 0.4 Difference between Comunas
+
+```{r}
+
+# 1. Accidents per comuna
+
+ggplot(data_description, aes(x = reorder(Comuna, count, FUN = median), y = count)) +  # Reorder Comuna by median count
+  geom_boxplot() +
+  labs(title = "Sorted Vertical Boxplot of Daily Accidents by Comuna", x = "Comuna", y = "Number of Accidents") +
+  coord_flip() +  # Flip coordinates to make the boxplots vertical
+  theme(axis.text.y = element_text(size = 6))  # Adjust the font size of the y-axis labels
+# Save the plot (adjust dimensions as needed)
+ggsave("../results/descriptives/vertical_boxplot_comuna.png", width = 10, height = 30, dpi = 200)
+
+
+# 2. Buble map temp vs accidents
+# Calculate the total accidents and median temperature for each Comuna
+comuna_data <- data_description %>%
+  group_by(Comuna) %>%
+  summarize(total_accidents = sum(count),
+            median_temperature = median(tmax))
+
+# Create the bubble map with swapped axes and updated title
+ggplot(comuna_data, aes(x = median_temperature, y = total_accidents, size = total_accidents, color = median_temperature)) +
+  geom_point(alpha = 0.7) +
+  labs(title = "Bubble Map of Total Accidents and Median Temperature by Comuna",
+       x = "Median Temperature (°C)",
+       y = "Total Accidents",
+       size = "Total Accidents",
+       color = "Median Temperature") +
+  theme_minimal()
+
+# 3. Dot Plot Invierno Verano
+# Define summer and winter months (adjust as needed)
+summer_months <- c(10,11,12,1,2,3) #nov, dic, ene, feb, mar,
+winter_months <- c(4,5,6,7,8,9)  # el resto
+
+# Calculate total accidents for summer and winter for each Comuna
+comuna_data <- data_description %>%
+  group_by(Comuna) %>%
+  summarize(
+    total_accidents_summer = sum(count[month %in% summer_months]),
+    total_accidents_winter = sum(count[month %in% winter_months]),
+    mean_temperature = mean(tmax, na.rm = TRUE)  # Calculate mean temperature
+  )
+
+# Create a new data frame for plotting
+comuna_data_long <- comuna_data %>%
+  tidyr::pivot_longer(
+    cols = c(total_accidents_summer, total_accidents_winter),
+    names_to = "Season",
+    values_to = "Total_Accidents"
+  )
+
+# Create the dot plot with lines, sorted by mean temperature
+ggplot(comuna_data_long, aes(x = Total_Accidents, y = reorder(Comuna, mean_temperature), group = Comuna)) +
+  geom_point(aes(color = Season)) +
+  geom_line() +
+  labs(title = "Summer vs. Winter Accidents by Comuna, Sorted by Mean Temperature",
+       x = "Total Accidents",
+       y = "Comuna",
+       color = "Season") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 6))  # Adjust y-axis label size as needed
+ggsave("../results/descriptives/vertical_dotplot_winsum_comuna.png", width = 10, height = 30, dpi = 200)
+
+# 3. Option 2
+
+# Define summer and winter months (adjust as needed)
+summer_months <- c(10,11,12,1,2,3) # October to March
+winter_months <- c(4,5,6,7,8,9)  # The rest
+
+# Calculate total accidents for summer and winter for each Comuna
+comuna_data <- data_description %>%
+  group_by(Comuna) %>%
+  summarize(
+    total_accidents_summer = sum(count[month %in% summer_months]),
+    total_accidents_winter = sum(count[month %in% winter_months]),
+    mean_temperature = mean(tmax, na.rm = TRUE)  # Calculate mean temperature
+  )
+
+# Create a new data frame for plotting
+comuna_data_long <- comuna_data %>%
+  tidyr::pivot_longer(
+    cols = c(total_accidents_summer, total_accidents_winter),
+    names_to = "Season",
+    values_to = "Total_Accidents"
+  )
+
+# Create the dot plot with lines, sorted by mean temperature
+# Add manual labels for Median tmax on the y-axis
+# Use log scale for x-axis (add 1 to Total_Accidents to avoid log(0))
+ggplot(comuna_data_long, aes(x = Total_Accidents + 1, y = reorder(Comuna, mean_temperature), group = Comuna)) +
+  geom_point(aes(color = Season)) +
+  geom_line() +
+  labs(title = "Summer vs. Winter Accidents by Comuna, Sorted by Mean Temperature",
+       x = "Total Accidents (log scale)",  # Update x-axis label
+       y = "Comuna (Mean Temperature)",  # Add y-axis label
+       color = "Season") +
+  scale_y_discrete(breaks = levels(comuna_data_long$Comuna),  # Set breaks at Comuna levels
+                   labels = paste(levels(comuna_data_long$Comuna), 
+                                 " (", 
+                                 round(comuna_data$mean_temperature, 1), 
+                                 "°C)",  # Add temperature labels
+                                 sep = "")) +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 6)) +  # Adjust y-axis label size as needed
+  scale_x_log10()  # Use log scale for x-axis
+
+# Save the plot (adjust dimensions as needed)
+ggsave("../results/descriptives/vertical_dotplot_winsum_comuna2.png", width = 10, height = 15, dpi = 200)
+```
+
+
+# 1. Tables: Count of accidents by sex, sector and GE
+```{r echo=FALSE}
+prepare_descriptive_data <- function(data = rawdata) {
+  data %>%
+    filter(tipo_siniestro_actual_desc == "Trabajo") %>%
+    filter(!is.na(sexo), !is.na(edad), !is.na(macrosector)) %>%
+    mutate(
+      sexo = stringr::str_to_title(sexo),
+      grupo_edad = cut(
+        edad,
+        breaks = c(-Inf, 39, 59, Inf),
+        labels = c("18–39", "40–59", "60+"),
+        right = TRUE
+      )
+    ) %>%
+    select(macrosector, sexo, grupo_edad)
+}
+
+accidents.summary <- prepare_descriptive_data(rawdata)
+# Diccionario para traducir macrosectores
+macrosector_english_map <- c(
+  "Silvoagropecuario" = "Agroforestry and Fishing",
+  "Industria, Construcción y Minería" = "Industry, Construction and Mining",
+  "Comercio" = "Commerce",
+  "Servicios Públicos" = "Public Services",
+  "Resto Servicios" = "Other Services",
+  "No asignado" = "Unassigned"
+)
+
+# Diccionario para traducir sexo
+sexo_english_map <- c(
+  "Femenino" = "Female",
+  "Masculino" = "Male"
+)
+
+# Aplicar traducción a la base
+accidents.summary <- accidents.summary %>%
+  mutate(
+    macrosector = macrosector_english_map[macrosector],
+    sexo = sexo_english_map[sexo]
+  )
+
+```
+
+## 1.1 accidents_by_sector_sex
+
+
+```{r echo=FALSE}
+
+tabla2 <- accidents.summary %>%
+  group_by(macrosector, sexo) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(macrosector) %>%
+  mutate(pct = round(n / sum(n) * 100, 1))
+
+```
+
+## 1.2 accidents_by_sector_age_sex
+
+```{r echo=FALSE}
+tabla3 <- accidents.summary %>%
+  group_by(macrosector, grupo_edad, sexo) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(macrosector) %>%
+  mutate(pct = round(n / sum(n) * 100, 1))
+```
+
+## 1.3 female_share_by_sector
+
+```{r echo=FALSE}
+tabla4 <- tabla2 %>%
+  filter(sexo == "Female")
+
+```
+
+## 1.4 female_accidents_by_sector_age
+
+```{r echo=FALSE}
+tabla5 <- accidents.summary %>%
+  filter(sexo == "Female") %>%
+  group_by(macrosector, grupo_edad) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(macrosector) %>%
+  mutate(pct = round(n / sum(n) * 100, 1))
+# agregar view
+```
+
+## 1.5 female_distribution_by_sector
+
+```{r echo=FALSE}
+# Tabla 6: Accidentes de mujeres por macrosector (frecuencia y porcentaje)
+tabla6 <- accidents.summary %>%
+  filter(sexo == "Female") %>%
+  group_by(macrosector) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  mutate(pct = round(n / sum(n) * 100, 1))
+
+kable(tabla6,
+      format = "latex",
+      booktabs = TRUE,
+      col.names = c("Economic Sector", "N", "(%)"),
+      caption = "Distribution of women's occupational accidents by economic sector") %>%
+  cat(file = "../results/anexos/tabla6_women_sector_distribution.tex")
+
+
+```
+
+## 1.6 export tables 
+
+```{r eval=FALSE}
+
+# Crear carpeta si no existe
+if (!dir.exists("anexos")) dir.create("anexos")
+
+# === Table 2: Accidents by macrosector and sex ===
+kable(tabla2,
+      format = "latex",
+      booktabs = TRUE,
+      col.names = c("Macrosector", "Sex", "Count", "Proportion (%)")) %>%
+  kable_styling(
+    latex_options = c("hold_position", "scale_down"),
+    font_size = 9,
+    full_width = FALSE
+  ) %>%
+  cat(file = "../results/anexos/tabla2_macrosector_sexo.tex")
+
+# === Table 3: Accidents by macrosector, age group and sex ===
+kable(tabla3,
+      format = "latex",
+      booktabs = TRUE,
+      col.names = c("Macrosector", "Age group", "Sex", "Count", "Proportion (%)")) %>%
+  kable_styling(
+    latex_options = c("hold_position", "scale_down"),
+    font_size = 9,
+    full_width = FALSE
+  ) %>%
+  cat(file = "../results/anexos/tabla3_macrosector_edad_sexo.tex")
+
+# === Table 4: Female proportion by macrosector ===
+kable(tabla4,
+      format = "latex",
+      booktabs = TRUE,
+      col.names = c("Macrosector", "Sex", "Count", "Proportion (%)")) %>%
+  kable_styling(
+    latex_options = c("hold_position", "scale_down"),
+    font_size = 9,
+    full_width = FALSE
+  ) %>%
+  cat(file = "../results/anexos/tabla4_macrosector_mujeres.tex")
+
+# === Table 5: Female accidents by macrosector and age group ===
+kable(tabla5,
+      format = "latex",
+      booktabs = TRUE,
+      col.names = c("Macrosector", "Age group", "Count", "Proportion (%)")) %>%
+  kable_styling(
+    latex_options = c("hold_position", "scale_down"),
+    font_size = 9,
+    full_width = FALSE
+  ) %>%
+  cat(file = "../results/anexos/tabla5_macrosector_mujeres_edad.tex")
+
+```
+
+# 2. Additional models of interest
+
+## 2.1 Agroforestry by zone
+
+```{r echo=FALSE}
+
+# North
+cp_agro_north <- f_estimate_results(
+  input_data = f_prepare_dlnm_data(
+    rawdata, temp_data,
+    filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & macrosector == 'Silvoagropecuario' & MacroRegion == 'North'",
+    feriados_vec = feriados),
+  output_name = "Agro_North"
+)
+
+# Center
+cp_agro_center <- f_estimate_results(
+  input_data = f_prepare_dlnm_data(
+    rawdata, temp_data,
+    filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & macrosector == 'Silvoagropecuario' & MacroRegion == 'Center'",
+    feriados_vec = feriados),
+  output_name = "Agro_Center"
+)
+
+# South
+cp_agro_south <- f_estimate_results(
+  input_data = f_prepare_dlnm_data(
+    rawdata, temp_data,
+    filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & macrosector == 'Silvoagropecuario' & MacroRegion == 'South'",
+    feriados_vec = feriados),
+  output_name = "Agro_South"
+)
+
+# Plot
+f_plot2curves(cp_agro_north[[1]], cp_agro_center[[1]], cp_agro_south[[1]],
+              xlim = c(5, 40),
+              legend = c("North", "Center", "South"),
+              figurenumber = 100,
+              anexo = 1)
+
+# Save results
+results_df_agro_zone <- rbind(
+  as.data.table(as.list(cp_agro_north[[2]])),
+  as.data.table(as.list(cp_agro_center[[2]])),
+  as.data.table(as.list(cp_agro_south[[2]])),
+  fill = TRUE
+)
+
+
+
+
+```
+
+
+## 2.2 Gender-Specific Risk Estimates by Subgroup (only female)
+
+This section explores whether the increased relative risk observed in women persists across different subgroups. Specifically, we disaggregate the female subset into age groups, geographic macro-zones, and economic sectors. This analysis helps identify high-risk intersections of sex and exposure and can inform more targeted adaptation measures.
+
+All models are run using the same case time series approach and parameters as the main model. For each subgroup within women, the RR is estimated across temperature values, with visual comparisons across categories.
+
+
+### 2.2.1 By agegroup
+```{r echo=FALSE}
+# Group 1: 18–39
+data_f_18_39 <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & edad >= 18 & edad <= 39",
+  feriados_vec = feriados
+)
+cp_f_18_39 <- f_estimate_results(input_data = data_f_18_39, output_name = "Female_18–39")
+
+# Group 2: 40–59
+data_f_40_59 <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & edad >= 40 & edad <= 59",
+  feriados_vec = feriados
+)
+cp_f_40_59 <- f_estimate_results(input_data = data_f_40_59, output_name = "Female_40–59")
+
+# Group 3: 60+
+data_f_60plus <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & edad >= 60",
+  feriados_vec = feriados
+)
+cp_f_60plus <- f_estimate_results(input_data = data_f_60plus, output_name = "Female_60+")
+
+# Plot all together
+f_plot2curves(cp_f_18_39[[1]], cp_f_40_59[[1]], cp_f_60plus[[1]],
+              xlim = c(5, 40), legend = c("18–39", "40–59", "60+"), figurenumber = 101,
+              anexo = 1)
+
+# Save results
+results_df_gender_subgroups <- rbind(
+  as.data.table(as.list(cp_f_18_39[[2]])),
+  as.data.table(as.list(cp_f_40_59[[2]])),
+  as.data.table(as.list(cp_f_60plus[[2]])),
+  fill = TRUE
+)
+
+
+```
+
+result: no significance observed in the age group for females
+
+
+
+### 2.2.2 By zone
+
+```{r echo=FALSE}
+# North
+data_f_north <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & MacroRegion == 'North'",
+  feriados_vec = feriados
+)
+cp_f_north <- f_estimate_results(input_data = data_f_north, output_name = "Female_North")
+
+# Center
+data_f_center <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & MacroRegion == 'Center'",
+  feriados_vec = feriados
+)
+cp_f_center <- f_estimate_results(input_data = data_f_center, output_name = "Female_Center")
+
+# South
+data_f_south <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & MacroRegion == 'South'",
+  feriados_vec = feriados
+)
+cp_f_south <- f_estimate_results(input_data = data_f_south, output_name = "Female_South")
+
+# Plot
+f_plot2curves(cp_f_north[[1]], cp_f_center[[1]], cp_f_south[[1]],
+              xlim = c(5, 40), legend = c("North", "Center", "South"), figurenumber = 102,
+              anexo = 1)
+
+# Save results
+results_df_gender_subgroups <- rbind(
+  results_df_gender_subgroups,
+  as.data.table(as.list(cp_f_north[[2]])),
+  as.data.table(as.list(cp_f_center[[2]])),
+  as.data.table(as.list(cp_f_south[[2]])),
+  fill = TRUE
+)
+
+```
+
+
+### 2.2.3 by economic sector
+
+```{r echo=FALSE}
+# Agroforestry and Fishing
+cp_f_agro <- f_estimate_results(
+  input_data = f_prepare_dlnm_data(
+    rawdata, temp_data,
+    filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & macrosector == 'Silvoagropecuario'",
+    feriados_vec = feriados),
+  output_name = "Female_Agroforestry"
+)
+
+# Industry/Construction/Mining
+cp_f_public <- f_estimate_results(
+  input_data = f_prepare_dlnm_data(
+    rawdata, temp_data,
+    filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & macrosector == 'Servicios Públicos'",
+    feriados_vec = feriados),
+  output_name = "Female_public_services"
+)
+
+# Commerce
+cp_f_commerce <- f_estimate_results(
+  input_data = f_prepare_dlnm_data(
+    rawdata, temp_data,
+    filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & macrosector == 'Comercio'",
+    feriados_vec = feriados),
+  output_name = "Female_Commerce"
+)
+
+# Plot
+f_plot2curves(cp_f_agro[[1]], cp_f_public[[1]], cp_f_commerce[[1]],
+              xlim = c(5, 40),
+              legend = c("Agroforestry", "Public services", "Commerce"),
+              figurenumber = 103,
+              anexo = 1)
+
+# Save results
+results_df_gender_subgroups <- rbind(
+  results_df_gender_subgroups,
+  as.data.table(as.list(cp_f_agro[[2]])),
+  as.data.table(as.list(cp_f_public[[2]])),
+  as.data.table(as.list(cp_f_commerce[[2]])),
+  fill = TRUE
+)
+
+
+```
+
+## 2.3 Disaggregation of female risk in high-risk sectors
+This section analyzes in more detail the two economic sectors with the highest female burden and heat-related risk: Agroforestry and Fishing, and Public Services. For each sector, we stratify women’s accidents by age group and macro-zone, to identify particularly vulnerable subpopulations.
+
+
+### 2.3.1 Female workers in Agroforestry and Fishing
+
+#### Age group stratification
+
+
+```{r echo=FALSE}
+# Female 18–39 in Agroforestry
+cp_f_agro_18_39 <- f_estimate_results(
+  input_data = f_prepare_dlnm_data(rawdata, temp_data,
+    filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & macrosector == 'Silvoagropecuario' & edad >= 18 & edad <= 39",
+    feriados_vec = feriados),
+  output_name = "F_Agro_18_39"
+)
+
+# Female 40–59 in Agroforestry
+cp_f_agro_40_59 <- f_estimate_results(
+  input_data = f_prepare_dlnm_data(rawdata, temp_data,
+    filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & macrosector == 'Silvoagropecuario' & edad >= 40 & edad <= 59",
+    feriados_vec = feriados),
+  output_name = "F_Agro_40_59"
+)
+
+# Female 60+ in Agroforestry
+cp_f_agro_60plus <- f_estimate_results(
+  input_data = f_prepare_dlnm_data(rawdata, temp_data,
+    filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & macrosector == 'Silvoagropecuario' & edad >= 60",
+    feriados_vec = feriados),
+  output_name = "F_Agro_60plus"
+)
+
+# Plot
+f_plot2curves(cp_f_agro_18_39[[1]], cp_f_agro_40_59[[1]], cp_f_agro_60plus[[1]],
+              xlim = c(5, 40),
+              legend = c("18–39", "40–59", "60+"),
+              figurenumber = 104,
+              anexo = 1) 
+
+# Save
+results_df_gender_agro_age <- rbind(
+  as.data.table(as.list(cp_f_agro_18_39[[2]])),
+  as.data.table(as.list(cp_f_agro_40_59[[2]])),
+  as.data.table(as.list(cp_f_agro_60plus[[2]])),
+  fill = TRUE
+)
+
+```
+#### Macro-zone stratification
+
+```{r echo=FALSE}
+
+
+# Female Agroforestry in North
+cp_f_agro_north <- f_estimate_results(
+  input_data = f_prepare_dlnm_data(rawdata, temp_data,
+    filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & macrosector == 'Silvoagropecuario' & MacroRegion == 'North'",
+    feriados_vec = feriados),
+  output_name = "F_Agro_North"
+)
+
+# Center
+cp_f_agro_center <- f_estimate_results(
+  input_data = f_prepare_dlnm_data(rawdata, temp_data,
+    filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & macrosector == 'Silvoagropecuario' & MacroRegion == 'Center'",
+    feriados_vec = feriados),
+  output_name = "F_Agro_Center"
+)
+
+# South
+cp_f_agro_south <- f_estimate_results(
+  input_data = f_prepare_dlnm_data(rawdata, temp_data,
+    filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & macrosector == 'Silvoagropecuario' & MacroRegion == 'South'",
+    feriados_vec = feriados),
+  output_name = "F_Agro_South"
+)
+
+# Plot
+f_plot2curves(cp_f_agro_north[[1]], cp_f_agro_center[[1]], cp_f_agro_south[[1]],
+              xlim = c(5, 40),
+              ylim = c(0.5, 2.5),
+              legend = c("North", "Center", "South"),
+              figurenumber = 105,
+              anexo = 1)
+
+# Save
+results_df_gender_agro_geo <- rbind(
+  as.data.table(as.list(cp_f_agro_north[[2]])),
+  as.data.table(as.list(cp_f_agro_center[[2]])),
+  as.data.table(as.list(cp_f_agro_south[[2]])),
+  fill = TRUE
+)
+
+
+```
+
+
+### 2.3.2 Female workers in Public services
+
+#### Age group stratification
+
+
+```{r echo=FALSE}
+# Female 18–39 in public services
+cp_f_public_18_39 <- f_estimate_results(
+  input_data = f_prepare_dlnm_data(rawdata, temp_data,
+    filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & macrosector == 'Servicios Públicos' & edad >= 18 & edad <= 39",
+    feriados_vec = feriados),
+  output_name = "F_public_18_39"
+)
+
+# Female 40–59 in public services
+cp_f_public_40_59 <- f_estimate_results(
+  input_data = f_prepare_dlnm_data(rawdata, temp_data,
+    filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & macrosector == 'Servicios Públicos' & edad >= 40 & edad <= 59",
+    feriados_vec = feriados),
+  output_name = "F_public_40_59"
+)
+
+# Female 60+ in public services
+cp_f_public_60plus <- f_estimate_results(
+  input_data = f_prepare_dlnm_data(rawdata, temp_data,
+    filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & macrosector == 'Servicios Públicos' & edad >= 60",
+    feriados_vec = feriados),
+  output_name = "F_public_60plus"
+)
+
+# Plot
+f_plot2curves(cp_f_public_18_39[[1]], cp_f_public_40_59[[1]], cp_f_public_60plus[[1]],
+              xlim = c(5, 40),
+              legend = c("18–39", "40–59", "60+"),
+              figurenumber = 106,
+              anexo = 1) 
+
+# Save
+results_df_gender_public_age <- rbind(
+  as.data.table(as.list(cp_f_public_18_39[[2]])),
+  as.data.table(as.list(cp_f_public_40_59[[2]])),
+  as.data.table(as.list(cp_f_public_60plus[[2]])),
+  fill = TRUE
+)
+
+```
+#### Macro-zone stratification
+
+```{r echo=FALSE}
+
+
+# Female public services in North
+cp_f_public_north <- f_estimate_results(
+  input_data = f_prepare_dlnm_data(rawdata, temp_data,
+    filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & macrosector == 'Servicios Públicos' & MacroRegion == 'North'",
+    feriados_vec = feriados),
+  output_name = "F_public_North"
+)
+
+# Center
+cp_f_public_center <- f_estimate_results(
+  input_data = f_prepare_dlnm_data(rawdata, temp_data,
+    filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & macrosector == 'Servicios Públicos' & MacroRegion == 'Center'",
+    feriados_vec = feriados),
+  output_name = "F_public_Center"
+)
+
+# South
+cp_f_public_south <- f_estimate_results(
+  input_data = f_prepare_dlnm_data(rawdata, temp_data,
+    filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino' & macrosector == 'Servicios Públicos' & MacroRegion == 'South'",
+    feriados_vec = feriados),
+  output_name = "F_public_South"
+)
+
+# Plot
+f_plot2curves(cp_f_public_north[[1]], cp_f_public_center[[1]], cp_f_public_south[[1]],
+              xlim = c(5, 40),
+              legend = c("North", "Center", "South"),
+              figurenumber = 107,
+              anexo = 1)
+
+# Save
+results_df_gender_public_geo <- rbind(
+  as.data.table(as.list(cp_f_public_north[[2]])),
+  as.data.table(as.list(cp_f_public_center[[2]])),
+  as.data.table(as.list(cp_f_public_south[[2]])),
+  fill = TRUE
+)
+
+
+```
+
+
+
+# 3. Models with other temperature measures
+
+```{r include=FALSE}
+# T mean data
+tmean_data <- as.data.table(read_parquet("../data/t2m.parquet")) # Import data 
+tmean_data[, date := as.Date(time)] # Convert 'fecha' to Date format and store in 'date'
+tmean_data[, time := NULL]
+```
+
+```{r include=FALSE}
+
+
+
+
+datafull_tmean <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = tmean_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo'" ,
+  date_col_accidents = "fecha_accidente",
+  date_col_temperature = "date",
+  commune_col = "Comuna",
+  temp_col = "t2m",
+  feriados_vec = feriados # vector con fechas tipo "2023-09-18"
+)
+
+# Crear tabla con un solo valor de Region por Comuna (el primero encontrado)
+region_lookup <- rawdata[!is.na(Region), .(Region = first(Region)), by = Comuna]
+
+# Agregar columna Region a datafull por merge
+datafull_tmean <- merge(datafull_tmean, region_lookup, by = "Comuna", all.x = TRUE)
+```
+
+```{r echo=FALSE}
+# ESTIMATE
+mod1_tmean <- f_estimate_results(
+  input_data = datafull_tmean,
+  lag = 5,
+  cen = 15,
+  year_df = 8,
+  output_name = "Tmean"
+)
+
+# PLOT MAIN
+col <- "tomato4"
+pch_symbol <- 16 
+parold <- par(no.readonly = TRUE)
+par(mar = c(4, 4, 1, 0.5), las = 1, mgp = c(2.5, 1, 0))
+# Plot the result
+plot(mod1_tmean[[1]], "overall", ylim = c(0.5, 1.5), xlim=c(5,40), ylab = "Relative Risk",
+     col = col, lwd = 1.5, xlab = "Daily Mean Temperature (°C)", 
+     ci.arg = list(col = scales::alpha(col, 0.2)), pch = pch_symbol)
+par(parold)
+# Save the plot as PDF
+dev.print(pdf, file = paste0("../results/Tmean_model.pdf"), width = 7.5, height = 6)
+plot(mod1_tmean[[1]])
+
+
+```
+
+
+## hacerlos por tmean por zona
+```{r}
+datafull_tmean %>% group_by(Comuna) %>% summarise(mean(tmax))
+```
+
+```{r}
+# Asegurarse que datafull_tmean tenga MacroRegion
+datafull_tmean <- datafull_tmean %>%
+  mutate(
+    MacroRegion = case_when(
+      Region %in% c(1, 15, 2, 3, 4) ~ "North",
+      Region %in% c(5, 13, 6, 7, 16) ~ "Center",
+      Region %in% c(8, 9, 14, 10) ~ "South",
+      Region %in% c(11, 12) ~ "Austral",
+      TRUE ~ NA_character_
+    )
+  )
+
+# Subsets por MacroRegion
+mod_tmean_north <- f_estimate_results(
+  input_data = datafull_tmean %>% filter(MacroRegion == "North"),
+  output_name = "Tmean_North"
+)
+
+mod_tmean_center <- f_estimate_results(
+  input_data = datafull_tmean %>% filter(MacroRegion == "Center"),
+  output_name = "Tmean_Center"
+)
+
+mod_tmean_south <- f_estimate_results(
+  input_data = datafull_tmean %>% filter(MacroRegion == "South"),
+  output_name = "Tmean_South"
+)
+
+# Plot
+f_plot2curves(mod_tmean_north[[1]], mod_tmean_center[[1]], mod_tmean_south[[1]],
+              xlim = c(5, 40),
+              legend = c("North", "Center", "South"),
+              figurenumber = 109,
+              anexo = 1) 
+
+
+
+```
+
+
+
+
+
+
