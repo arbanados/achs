@@ -35,7 +35,7 @@ library(metafor)
 library(stringi)
 
 # Define holidays and macrosector mapping
-feriados=c('2015-01-01', '2015-01-01', '2015-04-03', '2015-04-04', '2015-05-01', '2015-05-21', '2015-06-29', '2015-07-16', '2015-08-15', '2015-09-18', '2015-09-19', '2015-10-12', '2015-10-31', '2015-11-01', '2015-12-08', '2015-12-25', '2016-01-01', '2016-01-01', '2016-03-25', '2016-03-26', '2016-05-01', '2016-05-21', '2016-06-12', '2016-06-27', '2016-07-16', '2016-08-15', '2016-09-18', '2016-09-19', '2016-10-10', '2016-10-23', '2016-10-31', '2016-11-01', '2016-12-08', '2016-12-25', '2017-01-01', '2017-01-01', '2017-01-02', '2017-04-14', '2017-04-15', '2017-04-19', '2017-05-01', '2017-05-21', '2017-06-26', '2017-07-02', '2017-07-16', '2017-08-15', '2017-09-18', '2017-09-19', '2017-10-09', '2017-10-27', '2017-11-01', '2017-11-19', '2017-12-08', '2017-12-17', '2017-12-25', '2018-01-01', '2018-01-01', '2018-01-16', '2018-03-30', '2018-03-31', '2018-05-01', '2018-05-21', '2018-07-02', '2018-07-16', '2018-08-15', '2018-09-17', '2018-09-18', '2018-09-19', '2018-10-15', '2018-11-01', '2018-11-02', '2018-12-08', '2018-12-25', '2019-01-01', '2019-01-01', '2019-04-19', '2019-04-20', '2019-05-01', '2019-05-21', '2019-06-29', '2019-07-16', '2019-08-15', '2019-09-18', '2019-09-19', '2019-09-20', '2019-10-12', '2019-10-31', '2019-11-01', '2019-12-08', '2019-12-25', '2020-01-01', '2020-01-01', '2020-04-10', '2020-04-11', '2020-04-26', '2020-05-01', '2020-05-21', '2020-06-07', '2020-06-29', '2020-07-16', '2020-08-15', '2020-09-18', '2020-09-19', '2020-10-12', '2020-10-25', '2020-10-31', '2020-11-01', '2020-12-08', '2020-12-25', '2021-01-01', '2021-01-01', '2021-04-02', '2021-04-03', '2021-04-11', '2021-05-01', '2021-05-09', '2021-05-21', '2021-06-21', '2021-06-28', '2021-07-04', '2021-07-16', '2021-08-15', '2021-09-17', '2021-09-18', '2021-09-19', '2021-10-11', '2021-10-31', '2021-11-01', '2021-11-21', '2021-12-08', '2021-12-19', '2021-12-25', '2022-01-01', '2022-04-15', '2022-04-16', '2022-05-01', '2022-05-21', '2022-06-21', '2022-06-27', '2022-07-16', '2022-08-15', '2022-09-16', '2022-09-18', '2022-09-19', '2022-10-10', '2022-10-31', '2022-11-01', '2022-12-08', '2022-12-25', '2023-01-01', '2023-01-02', '2023-04-07', '2023-04-08', '2023-05-01', '2023-05-21', '2023-06-21', '2023-06-26', '2023-07-16', '2023-08-15', '2023-09-18', '2023-09-19', '2023-10-09', '2023-10-27', '2023-11-01', '2023-12-08', '2023-12-25') # List of dates
+holidays=c('2015-01-01', '2015-01-01', '2015-04-03', '2015-04-04', '2015-05-01', '2015-05-21', '2015-06-29', '2015-07-16', '2015-08-15', '2015-09-18', '2015-09-19', '2015-10-12', '2015-10-31', '2015-11-01', '2015-12-08', '2015-12-25', '2016-01-01', '2016-01-01', '2016-03-25', '2016-03-26', '2016-05-01', '2016-05-21', '2016-06-12', '2016-06-27', '2016-07-16', '2016-08-15', '2016-09-18', '2016-09-19', '2016-10-10', '2016-10-23', '2016-10-31', '2016-11-01', '2016-12-08', '2016-12-25', '2017-01-01', '2017-01-01', '2017-01-02', '2017-04-14', '2017-04-15', '2017-04-19', '2017-05-01', '2017-05-21', '2017-06-26', '2017-07-02', '2017-07-16', '2017-08-15', '2017-09-18', '2017-09-19', '2017-10-09', '2017-10-27', '2017-11-01', '2017-11-19', '2017-12-08', '2017-12-17', '2017-12-25', '2018-01-01', '2018-01-01', '2018-01-16', '2018-03-30', '2018-03-31', '2018-05-01', '2018-05-21', '2018-07-02', '2018-07-16', '2018-08-15', '2018-09-17', '2018-09-18', '2018-09-19', '2018-10-15', '2018-11-01', '2018-11-02', '2018-12-08', '2018-12-25', '2019-01-01', '2019-01-01', '2019-04-19', '2019-04-20', '2019-05-01', '2019-05-21', '2019-06-29', '2019-07-16', '2019-08-15', '2019-09-18', '2019-09-19', '2019-09-20', '2019-10-12', '2019-10-31', '2019-11-01', '2019-12-08', '2019-12-25', '2020-01-01', '2020-01-01', '2020-04-10', '2020-04-11', '2020-04-26', '2020-05-01', '2020-05-21', '2020-06-07', '2020-06-29', '2020-07-16', '2020-08-15', '2020-09-18', '2020-09-19', '2020-10-12', '2020-10-25', '2020-10-31', '2020-11-01', '2020-12-08', '2020-12-25', '2021-01-01', '2021-01-01', '2021-04-02', '2021-04-03', '2021-04-11', '2021-05-01', '2021-05-09', '2021-05-21', '2021-06-21', '2021-06-28', '2021-07-04', '2021-07-16', '2021-08-15', '2021-09-17', '2021-09-18', '2021-09-19', '2021-10-11', '2021-10-31', '2021-11-01', '2021-11-21', '2021-12-08', '2021-12-19', '2021-12-25', '2022-01-01', '2022-04-15', '2022-04-16', '2022-05-01', '2022-05-21', '2022-06-21', '2022-06-27', '2022-07-16', '2022-08-15', '2022-09-16', '2022-09-18', '2022-09-19', '2022-10-10', '2022-10-31', '2022-11-01', '2022-12-08', '2022-12-25', '2023-01-01', '2023-01-02', '2023-04-07', '2023-04-08', '2023-05-01', '2023-05-21', '2023-06-21', '2023-06-26', '2023-07-16', '2023-08-15', '2023-09-18', '2023-09-19', '2023-10-09', '2023-10-27', '2023-11-01', '2023-12-08', '2023-12-25') # List of dates
 macrosector_map <- c(# Mapping of economic sectors
   # Grupo 1: Silvoagropecuario
   "Agrícola" = "Silvoagropecuario",
@@ -103,7 +103,7 @@ f_prepare_dlnm_data <- function(
     temp_col = "tmax",
     start_date = "2015-01-01",
     end_date = "2020-03-01",
-    feriados_vec = NULL
+    holidays_vec = NULL
 ) {
   # basic validation
   required_cols_acc <- c(commune_col, date_col_accidents)
@@ -146,9 +146,9 @@ f_prepare_dlnm_data <- function(
     dow = wday(date)
   )]
   
-  # Feriados
-  if (!is.null(feriados_vec)) {
-    datafull[, holiday := if_else(as.character(date) %in% feriados_vec, 1, 0)]
+  # holidays
+  if (!is.null(holidays_vec)) {
+    datafull[, holiday := if_else(as.character(date) %in% holidays_vec, 1, 0)]
   } else {
     datafull[, holiday := 0]
   }
@@ -180,7 +180,7 @@ datafull <- f_prepare_dlnm_data(
   date_col_temperature = "date",
   commune_col = "Comuna",
   temp_col = "tmax",
-  feriados_vec = feriados
+  holidays_vec = holidays
 )
 ```
 
@@ -244,7 +244,7 @@ plot_south <- ggplot() +
 
 combined_plot <- plot_north + plot_south + plot_layout(ncol = 2)
 
-ggsave("../results/Figure1.pdf", combined_plot, width = 14, height = 10)
+ggsave("../results/Figure1.pdf", combined_plot, width = 12, height = 8.2)
 
 ```
 
@@ -422,7 +422,7 @@ data_male <- f_prepare_dlnm_data(
   accidents_data = rawdata,
   temperature_data = temp_data,
   filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'masculino'",
-  feriados_vec = feriados
+  holidays_vec = holidays
 )
 cp_masc <- f_estimate_results(input_data = data_male, output_name = "Male")
 
@@ -431,7 +431,7 @@ data_fem <- f_prepare_dlnm_data(
   accidents_data = rawdata,
   temperature_data = temp_data,
   filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & sexo == 'femenino'",
-  feriados_vec = feriados
+  holidays_vec = holidays
 )
 cp_fem <- f_estimate_results(input_data = data_fem, output_name = "Female")
 
@@ -454,7 +454,7 @@ data_18_39 <- f_prepare_dlnm_data(
   accidents_data = rawdata,
   temperature_data = temp_data,
   filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & edad >= 18 & edad <= 39",
-  feriados_vec = feriados
+  holidays_vec = holidays
 )
 cp_18_39 <- f_estimate_results(input_data = data_18_39, output_name = "18–39")
 
@@ -462,7 +462,7 @@ data_40_59 <- f_prepare_dlnm_data(
   accidents_data = rawdata,
   temperature_data = temp_data,
   filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & edad >= 40 & edad <= 59",
-  feriados_vec = feriados
+  holidays_vec = holidays
 )
 cp_40_59 <- f_estimate_results(input_data = data_40_59, output_name = "40–59")
 
@@ -470,7 +470,7 @@ data_60plus <- f_prepare_dlnm_data(
   accidents_data = rawdata,
   temperature_data = temp_data,
   filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & edad >= 60",
-  feriados_vec = feriados
+  holidays_vec = holidays
 )
 cp_60mas <- f_estimate_results(input_data = data_60plus, output_name = "60+")
 
@@ -500,7 +500,7 @@ data_north <- f_prepare_dlnm_data(
   accidents_data = rawdata,
   temperature_data = temp_data,
   filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & MacroRegion == 'North'",
-  feriados_vec = feriados
+  holidays_vec = holidays
 )
 cp_North <- f_estimate_results(input_data = data_north, output_name = "North")
 
@@ -508,7 +508,7 @@ data_center <- f_prepare_dlnm_data(
   accidents_data = rawdata,
   temperature_data = temp_data,
   filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & MacroRegion == 'Center'",
-  feriados_vec = feriados
+  holidays_vec = holidays
 )
 cp_Center <- f_estimate_results(input_data = data_center, output_name = "Center")
 
@@ -516,7 +516,7 @@ data_south <- f_prepare_dlnm_data(
   accidents_data = rawdata,
   temperature_data = temp_data,
   filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & MacroRegion == 'South'",
-  feriados_vec = feriados
+  holidays_vec = holidays
 )
 cp_South <- f_estimate_results(input_data = data_south, output_name = "South")
 
@@ -543,7 +543,7 @@ data_agro <- f_prepare_dlnm_data(
   accidents_data = rawdata,
   temperature_data = temp_data,
   filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & macrosector == 'Silvoagropecuario'",
-  feriados_vec = feriados
+  holidays_vec = holidays
 )
 cp_Silvoagropecuario <- f_estimate_results(input_data = data_agro, output_name = "Agroforestry&Fishing")
 
@@ -551,7 +551,7 @@ data_industry <- f_prepare_dlnm_data(
   accidents_data = rawdata,
   temperature_data = temp_data,
   filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & macrosector == 'Industria, Construcción y Minería'",
-  feriados_vec = feriados
+  holidays_vec = holidays
 )
 cp_Industria <- f_estimate_results(input_data = data_industry, output_name = "Industry/Construc/Mining")
 
@@ -559,7 +559,7 @@ data_commerce <- f_prepare_dlnm_data(
   accidents_data = rawdata,
   temperature_data = temp_data,
   filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & macrosector == 'Comercio'",
-  feriados_vec = feriados
+  holidays_vec = holidays
 )
 cp_Comercio <- f_estimate_results(input_data = data_commerce, output_name = "Commerce")
 
@@ -573,7 +573,7 @@ data_public <- f_prepare_dlnm_data(
   accidents_data = rawdata,
   temperature_data = temp_data,
   filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & macrosector == 'Servicios Públicos'",
-  feriados_vec = feriados
+  holidays_vec = holidays
 )
 cp_Public <- f_estimate_results(input_data = data_public, output_name = "Public Service")
 
@@ -608,6 +608,11 @@ metafor::forest(x=as.numeric(results_df$RR_99_vs_75),
 
 dev.off()
 ```
+
+
+
+- sacar mañana y tarde
+- filtrar por estaciones
 
 
 

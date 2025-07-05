@@ -1,7 +1,7 @@
 ---
 title: "Association between extreme temperature and work-related
 accidents in Chile: a case time series by communes’ design - Supplementary material"
-author: "Alejandro Bañados, Yasna Palmeiro, Luis Cifuentes y Pablo Cea"
+author: "Alejandro Bañados, Yasna Palmeiro, Luis Cifuentes & Pablo Cea"
 output:
   pdf_document: default
   html_document:
@@ -355,33 +355,111 @@ f_prepare_dlnm_data <- function(
 
 ## 0.2 Preparation of Time Series
 Accidents data is loaded, some filters are made and it is restructured so every commune has a data point for each day, including days with and without accidents. This is not very efficient in space use, but is the way the data is needed for dlnm package.
+
+We import the datasets, clean them, and create a complete time series for each commune. This structure is required by the DLNM model, ensuring that every date is represented even if it has 0 count.
+
 ```{r include=FALSE}
+# Load and preprocess accidents and temperature data
+rawdata <- as.data.table(read_parquet("../data/ACHS_accidents.parquet"))
+temp_data <- as.data.table(read_parquet("../data/tmax.parquet"))
+temp_data[, date := as.Date(time)]; temp_data[, time := NULL]
 
-datafull <- fread("../data/datafull.csv")
-
-# injuries data
-rawdata <- as.data.table(read_parquet("../data/ACHS_accidents.parquet")) # Import data
-clasif <- read_csv("../data/classification_sectors.csv",show_col_types = FALSE)
-rawdata <- rawdata %>%
-  left_join(clasif, by = c("descripcion_rubro_achs" = "rubro"))
-table(rawdata$macrorubroACHS)
-rawdata$macrosector<- macrosector_map[rawdata$macrorubroACHS]
-
-
-# temp data
-temp_data <- as.data.table(read_parquet("../data/tmax.parquet")) # Import data 
-temp_data[, date := as.Date(time)] # Convert 'date' to Date format and store in 'date'
-temp_data[, time := NULL]
-
-rawdata[, Region := as.integer(substr(direccion_accidente, nchar(direccion_accidente) - 1, nchar(direccion_accidente)))]# Add Region (last two characters of direccion_accident)
-
+# Join classification data and derive macroregion
+clasif <- read_csv("../data/classification_sectors.csv", show_col_types = FALSE)
+rawdata <- rawdata %>% left_join(clasif, by = c("descripcion_rubro_achs" = "rubro"))
+rawdata$macrosector <- macrosector_map[rawdata$macrorubroACHS]
+rawdata[, Region := as.integer(substr(direccion_accidente, nchar(direccion_accidente) - 1, nchar(direccion_accidente)))]
 rawdata[, MacroRegion := fifelse(Region %in% c(1,15,2,3,4), "North",
                           fifelse(Region %in% c(5,13,6,7,16), "Center",
                           fifelse(Region %in% c(8,9,14,10), "South",
                           fifelse(Region %in% c(11,12), "Austral", NA_character_))))]
 
-```
+# Function to prepare commune-level DLNM-ready dataset
+f_prepare_dlnm_data <- function(
+    accidents_data,
+    temperature_data,
+    filter_condition = "TRUE",
+    date_col_accidents = "fecha_accidente",
+    date_col_temperature = "date",
+    commune_col = "Comuna",
+    temp_col = "tmax",
+    start_date = "2015-01-01",
+    end_date = "2020-03-01",
+    holidays_vec = NULL
+) {
+  # basic validation
+  required_cols_acc <- c(commune_col, date_col_accidents)
+  required_cols_temp <- c(commune_col, date_col_temperature, temp_col)
+  
+  if (!all(required_cols_acc %in% names(accidents_data))) {
+    stop("accidents_data must contain columns: ", paste(required_cols_acc, collapse = ", "))
+  }
+  if (!all(required_cols_temp %in% names(temperature_data))) {
+    stop("temperature_data must contain columns: ", paste(required_cols_temp, collapse = ", "))
+  }
+  
+  # prepare accidents
+  accidents <- as.data.table(accidents_data) %>%
+    filter(eval(parse(text = filter_condition))) %>%
+    group_by_at(c(commune_col, date_col_accidents)) %>%
+    summarise(count = n(), .groups = "drop") %>%
+    as.data.table()
+  
+  setnames(accidents, date_col_accidents, "date")
+  accidents[, date := as.Date(date)]
+  setnames(accidents, commune_col, "Comuna")
+  accidents <- accidents[!is.na(Comuna)]
+  accidents <- accidents[date >= as.Date(start_date) & date < as.Date(end_date)]
+  
+  # expand days without accidents
+  seq_comunas <- sort(unique(accidents$Comuna))
+  seq_dates <- seq(from = as.Date(start_date), to = as.Date(end_date), by = "day")
+  
+  datafull <- accidents %>%
+    complete(Comuna = seq_comunas, date = seq_dates, fill = list(count = 0)) %>%
+    as.data.table()
+  
+  # time variables
+  datafull[, `:=`(
+    year = year(date),
+    month = month(date),
+    day = mday(date),
+    doy = yday(date),
+    dow = wday(date)
+  )]
+  
+  # holidays
+  if (!is.null(holidays_vec)) {
+    datafull[, holiday := if_else(as.character(date) %in% holidays_vec, 1, 0)]
+  } else {
+    datafull[, holiday := 0]
+  }
+  
+  # temperature
+  temperature <- as.data.table(temperature_data)
+  setnames(temperature, date_col_temperature, "date")
+  setnames(temperature, commune_col, "Comuna")
+  setnames(temperature, temp_col, "tmax")
+  
+  # merge
+  final_data <- merge(datafull, temperature[, .(Comuna, date, tmax)], by = c("Comuna", "date"))
+  final_data <- final_data[complete.cases(final_data)]
+  setkey(final_data, Comuna, date)
+  
+  return(final_data)
+}
 
+datafull <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo'" ,# Filtered for work-related accidents
+  date_col_accidents = "fecha_accidente",
+  date_col_temperature = "date",
+  commune_col = "Comuna",
+  temp_col = "tmax",
+  holidays_vec = holidays
+)
+```
 
 
 ## 0.3 Short Description of data
@@ -1294,15 +1372,133 @@ f_plot2curves(mod_tmean_north[[1]], mod_tmean_center[[1]], mod_tmean_south[[1]],
 
 ```
 
-The observed decline in relative risk beyond 25°C in the mean temperature model may indicate heat adaptation in central and northern zones, as seen in the second figure, where the curves for these regions level off or even decline. Meanwhile, the continued rise in the South suggests less physiological or behavioral adaptation to heat, possibly due to historically cooler climates or differences in labor practices.
 
 
+# 4. Additionals
 
-# Conclusions
+## 4.1 Table of Communes
 
-Taken together, the exploratory analyses and the non-linear risk models presented in this supplementary material help identify key patterns that complement and deepen the findings of the main manuscript. The initial descriptive analyses show a high concentration of accidents on certain days and in specific communes, with slight indications of seasonality. At the level of economic macrosectors, a marked sex difference emerges, with male predominance in industrial activities and a significant proportion of women in the public services sector.
+```{r}
+datafull[, .(
+  total_accidents = sum(count, na.rm = TRUE),
+  tmax_P1 = round(quantile(tmax, probs = 0.01, na.rm = TRUE), 1),
+  tmax_P25 = round(quantile(tmax, probs = 0.25, na.rm = TRUE), 1),
+  tmax_P50 = round(quantile(tmax, probs = 0.50, na.rm = TRUE), 1),
+  tmax_P75 = round(quantile(tmax, probs = 0.75, na.rm = TRUE), 1),
+  tmax_P99 = round(quantile(tmax, probs = 0.99, na.rm = TRUE), 1)
+), by = Comuna][order(-total_accidents)]
+```
 
-The DLNM models reveal that relative risk associated with extreme temperatures is not uniform, highlighting the agroforestry sector in the south of the country as a potentially particularly vulnerable group, especially among women. Conversely, certain regions such as the north show high statistical uncertainty, indicating the need for cautious interpretation of these estimates and potentially warranting their exclusion from general analyses.
+## 4.3 Violin by macroregion
+```{r}
+# Prepare datasets for each macroregion
+data_north <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & MacroRegion == 'North'",
+  holidays_vec = holidays
+)
+data_north[, MacroRegion := "North"]
 
-These findings underscore the importance of conducting differentiated assessments by economic sector, geographic zone, and sex to inform more targeted and effective climate change prevention and adaptation policies.
+data_center <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & MacroRegion == 'Center'",
+  holidays_vec = holidays
+)
+data_center[, MacroRegion := "Center"]
+
+data_south <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & MacroRegion == 'South'",
+  holidays_vec = holidays
+)
+data_south[, MacroRegion := "South"]
+
+# Combine all
+combined_data <- rbindlist(list(data_north, data_center, data_south))
+
+# Set desired factor level order
+combined_data[, MacroRegion := factor(MacroRegion, levels = c("South","Center","North"))]
+
+
+ggplot(combined_data, aes(y = MacroRegion, x = tmax, fill = MacroRegion)) +
+  geom_violin(trim = FALSE, alpha = 0.6, color = NA) +
+  geom_boxplot(width = 0.15, alpha = 0.9, color = "black",
+               outlier.size = 1, outlier.alpha = 0.5) +
+  scale_x_continuous(name = "Max Daily Temperature (°C)") +
+  labs(
+    y = "MacroRegion",
+    title = "Distribution of Max Daily Temperatures"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
+
+## 4.2 Model only warm season
+
+```{r}
+mod1=f_estimate_results(input_data = datafull, lag = 5, cen = 20, year_df = 8, output_name = "Main")
+col <- "tomato4"
+pch_symbol <- 16 
+parold <- par(no.readonly = TRUE)
+par(mar = c(4, 4, 1, 0.5), las = 1, mgp = c(2.5, 1, 0))
+plot(mod1[[1]], "overall", ylim = c(0.5, 1.5), xlim=c(5,40), ylab = "Relative Risk",
+     col = col, lwd = 1.5, xlab = "Daily Maximum Temperature (°C)", 
+     ci.arg = list(col = scales::alpha(col, 0.2)), pch = pch_symbol)
+par(parold)
+```
+
+```{r}
+subset <- datafull[month %in% c(10, 11, 12, 1, 2, 3)]
+mod1=f_estimate_results(input_data = subset, lag = 5, cen = 20, year_df = 8, output_name = "Main")
+col <- "tomato4"
+pch_symbol <- 16 
+parold <- par(no.readonly = TRUE)
+par(mar = c(4, 4, 1, 0.5), las = 1, mgp = c(2.5, 1, 0))
+plot(mod1[[1]], "overall", ylim = c(0.5, 1.5), xlim=c(5,40), ylab = "Relative Risk",
+     col = col, lwd = 1.5, xlab = "Daily Maximum Temperature (°C)", 
+     ci.arg = list(col = scales::alpha(col, 0.2)), pch = pch_symbol)
+par(parold)
+```
+
+```{r}
+subset <- datafull[month %in% c(10, 11, 12, 1, 2, 3)]
+mod1=f_estimate_results(input_data = subset, lag = 5, cen = 20, year_df = 4, output_name = "Main")
+col <- "tomato4"
+pch_symbol <- 16 
+parold <- par(no.readonly = TRUE)
+par(mar = c(4, 4, 1, 0.5), las = 1, mgp = c(2.5, 1, 0))
+plot(mod1[[1]], "overall", ylim = c(0.5, 1.5), xlim=c(5,40), ylab = "Relative Risk",
+     col = col, lwd = 1.5, xlab = "Daily Maximum Temperature (°C)", 
+     ci.arg = list(col = scales::alpha(col, 0.2)), pch = pch_symbol)
+par(parold)
+```
+
+## 4.3 Model AM/PM
+```{r}
+# AM
+data_am<- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & as.numeric(hora_accidente) < 43200",
+  holidays_vec = holidays
+)
+cp_am <- f_estimate_results(input_data = data_am, output_name = "AM")
+
+# PM
+data_pm <- f_prepare_dlnm_data(
+  accidents_data = rawdata,
+  temperature_data = temp_data,
+  filter_condition = "tipo_siniestro_actual_desc == 'Trabajo' & as.numeric(hora_accidente) > 43200",
+  holidays_vec = holidays
+)
+cp_pm <- f_estimate_results(input_data = data_pm, output_name = "PM")
+
+# Plot
+f_plot2curves(cp_am[[1]], cp_pm[[1]], xlim = c(5, 40), legend = c("AM", "PM"), figurenumber = "extra")
+```
 
